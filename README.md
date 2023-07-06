@@ -82,6 +82,34 @@ The current state of the application will be saved in a Redis data store, which 
 
 ### Prepare the Environment
 
+As with every Python project, it's best practice to create a virtual environment to isolate the dependencies. This will ensure that the dependencies for this project don't interfere with other projects on your system and help to maintain the smallest possible container image for your app.
+
+In the terminal run the following commands:
+
+```shell
+mkdir page-tracker; cd page-tracker
+
+python3.11 -m venv tracker-app-env
+```
+
+- The first line creates a new directory for our app and changes the working directory to it.
+
+- The second line creates a virtual environment called `tracker-app-env` using Python 3.11 and the `venv` module (indicated by the `-m` flag). You can replace `python3.11` with `python3` (which uses the default Python version installed on your system) or whatever version of Python you prefer to use for this environment.
+
+To activate the virtual environment, run the following command:
+
+```shell
+source tracker-app-env/bin/activate
+
+(tracker-app-env) $ pip install --upgrade pip
+```
+
+- After activating the virtual environment, you should see the name of the environment in parentheses before the prompt.
+
+- You should upgrade to the latest version of `pip` to avoid any potential issues with dependency resolution when installing Python packages.
+
+
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/

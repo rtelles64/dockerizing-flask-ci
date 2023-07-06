@@ -108,7 +108,50 @@ source tracker-app-env/bin/activate
 
 - You should upgrade to the latest version of `pip` to avoid any potential issues with dependency resolution when installing Python packages.
 
+In this tutorial, you'll use the modern way of specifying dependencies and metadata through a [`pyproject.toml`][pyproject-toml] configuration file and [setuptools][setuptools] as the [build backend][build-backend]. Additionally, you'll follow the [`src` layout][src-layout] by placing your app's source code in a separate `src/` subdirectory to better organize the files in your project. This makes it straightforward to package your code without the automated tests we'll add later.
 
+To begin, create the following file tree:
+
+```shell
+page-tracker
+├── pyproject.toml
+├── requirements.txt
+├── tracker-app-env
+└── src
+    └── page_tracker
+        ├── __init__.py
+        └── app.py
+```
+
+Based on the project structure, we'll only have one Python module, `app`, defined in a package called `page_tracker`, sitting inside the `src` directory. The `requirements.txt` file will specify dependencies for the project in order to achieve [repeatable installs][repeatable-installs].
+
+> **NOTE**
+>
+> The original tutorial uses a `constraints.txt` file to manage package dependencies and versions. In this project, we use `requirements.txt` as it is simpler and we utilize the `pip-chill` package to only list the minimum required packages for app funcitonality.
+
+Since this project will depend on Flask and Redis, we can declare that in the `pyproject.toml` file:
+
+```toml
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=67.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "page-tracker"
+version = "1.0.0"
+dependencies = [
+    "Flask",
+    "redis",
+]
+```
+
+You typically don't specify dependency versions here. Instead, you would list them in a requirements or a constraints file. The first one tells `pip` what packages to install, the latter enforces specific versions of transitive dependencies.
+
+Before coding the web app, we need to prepare a local Redis server to connect to over a network.
+
+### Run a Redis Server Through Docker
 
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
@@ -121,3 +164,10 @@ source tracker-app-env/bin/activate
 
 [docker-engine]: https://docs.docker.com/engine/
 [docker-desktop]: https://docs.docker.com/desktop/
+
+[pyproject-toml]: https://realpython.com/courses/packaging-with-pyproject-toml/
+[setuptools]: https://setuptools.pypa.io/en/latest/
+[build-backend]: https://peps.python.org/pep-0517/
+[src-layout]: https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/
+
+[repeatable-installs]: https://pip.pypa.io/en/stable/topics/repeatable-installs/

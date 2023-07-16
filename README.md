@@ -153,6 +153,44 @@ Before coding the web app, we need to prepare a local Redis server to connect to
 
 ### Run a Redis Server Through Docker
 
+> **RECOMMENDED**
+>
+> If you are unfamiliar with how to use Redis with Python, it is recommended to familiarize yourself with useful commands by going through the [How to Use Redis with Python][python-redis] tutorial.
+
+_Redis_ is a portmanteau of the words _remote dictionary server_, which accurately conveys its purpose as a remote, in-memory data structure store. Being a key-value store, Redis is a remote Python dictionary that you can connect to from anywhere. It's also considered one of the most popular NoSQL databases used in many different contexts. Frequently, it serves the purpose of a cache on top of a relational database.
+
+> **NOTE**
+>
+> While Redis keeps all of its data in [_volatile memory_][volatile-memory], which makes it extremely fast, the server comes with a variety of [persistence options][redis-persistence]. They can ensure different levels of data durability in case of a power outage or reboot. However, configuring Redis correctly often proves difficult, which is why many teams decide to use a managed service outsourced to cloud providers.
+
+Installing Redis on your local machine is simple, but running it through Docker is even simpler and more elegant, assuming you've installed and configured Docker before. When you run a service, such as Redis, in a Docker container, it remains isolated from the rest of your system without causing clutter or hogging system resources like network port numbers, which are limited.
+
+To run Redis without installing it on your host machine you can run a new Docker container from the [official Redis image][redis-image] by invoking the following command:
+
+```shell
+docker run -d --name redis-server redis
+Unable to find image 'redis:latest' locally
+latest: Pulling from library/redis
+3ae0c06b4d3a: Already exists 
+...
+Status: Downloaded newer image for redis:latest
+```
+
+- This creates a new Docker container based on the latest version of the `redis` image, with the custom name `redis-server`, which you'll refer to later. The container is running in the background in detached mode (`-d`). When you run this command for the first time, Docker will pull the corresponding Docker image from Docker Hub, which is the official repository for Docker images, similar to PyPI.
+
+Assuming no errors, the Redis server (as a container) should be up and running and active in the background (in detached mode, `-d`). To verify this, you can list your Docker containers using the `docker container ls` command or the alias `docker ps`:
+
+```shell
+CONTAINER ID   IMAGE   ...   STATUS          PORTS      NAMES
+f0f84362b087   redis   ...   Up 13 minutes   6379/tcp   redis-server
+```
+
+- Here, you can see useful values like the running container ID, the image it was based off of, its status, the alias we gave it (`redis-server`), and the TCP port number `6379`, which is the default used by Redis.
+
+Next, we'll try connecting to the Redis server in various ways.
+
+### Test the Connection to Redis
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -171,3 +209,8 @@ Before coding the web app, we need to prepare a local Redis server to connect to
 [src-layout]: https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/
 
 [repeatable-installs]: https://pip.pypa.io/en/stable/topics/repeatable-installs/
+
+[volatile-memory]: https://en.wikipedia.org/wiki/Volatile_memory
+[redis-persistence]: https://redis.io/docs/management/persistence/
+
+[redis-image]: https://hub.docker.com/_/redis

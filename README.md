@@ -358,6 +358,88 @@ Now that we can connect to Redis from the command line, we can see how to do it 
 
 ### Connect to Redis from Python
 
+At this point, you have a Redis server running in a Docker container, which can be accessed on localhost using the default port number for Redis. To learn more about the container, you can always retrieve valuable information by inspecting the object:
+
+```shell
+docker inspect redis-server
+[
+    {
+        "Id": "888d71ab723765c7fafa5ef79795bfde68fc5364dd739a535ab3c0dc3755299d",
+        ...
+        "NetworkSettings": {
+            ...
+            "Ports": {
+                "6379/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "6379"
+                    }
+                ]
+            },
+            ...
+            "IPAddress": "172.17.0.2",
+            ...
+        }
+    }
+]
+```
+
+- The `docker inspect` command returns data in `JSON` format by default, which you can filter down further using [Go templates][docker-inspect-formatting].
+
+Now, activate the project's virtual environment (inside the `page-tracker` directory) and start a new Python REPL:
+
+```shell
+$ source page-tracker/tracker-app-env/bin/activate
+
+(tracker-app-env) $ python
+```
+
+Assuming the `redis` package was previously installed in the virtual environment, you should be able to import the Redis client for Python and all one of its method:
+
+```shell
+>>> from redis import Redis
+>>> redis = Redis()
+>>> redis.incr("page_views")
+4
+>>> redis.incr("page_views")
+5
+```
+
+- When you create a new `Redis` instance without specifying any arguments, it'll try to connect to a Redis server running on `localhost` and the default port `6379`.
+- In this case, calling `.incr()` confirms that you've successfully established a connection with Redis sitting in your Docker container because it remembered the last value of the `page_views` key.
+
+> **NOTE**
+>
+> If the Redis client for Python hasn't been installed yet, with the virtual environment activated, install the `redis` package with `pip`:
+>
+> ```shell
+> (tracker-app-env) $ pip install redis
+> ```
+
+If you need to connedct to Redis located on a remote machine, then supply a custom host and port number as parameters:
+
+```shell
+>>> from redis import Redis
+>>> redis = Redis(host="127.0.0.1", port=6379)
+>>> redis.incr("page_views")
+6
+```
+
+Another way to connect to Redis is by using a specificallly formatted URL string:
+
+```shell
+>>> from redis import Redis
+>>> redis = Redis.from_url("redis://localhost:6379/0")
+>>> redis.incr("page_views")
+7
+```
+
+- The `0` at the end of the URL string represents the database number, which is `0` by default. You can use different databases to separate different types of data. For newer versions of the `redis` package, the database number may be required.
+
+With multiple ways to connect to a Redis instance, you can integrate Redis with your Flask application.
+
+### Implement and Run the Flask App Locally
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -389,3 +471,5 @@ Now that we can connect to Redis from the command line, we can see how to do it 
 
 [docker-traffic-routing]: https://docs.docker.com/docker-for-mac/networking/#i-cannot-ping-my-containers
 [docker-port-mapping]: https://docs.docker.com/desktop/networking/#port-mapping
+
+[docker-inspect-formatting]: https://docs.docker.com/config/formatting/

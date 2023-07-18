@@ -1,2 +1,3 @@
 .DS_Store
 page-tracker/tracker-app-env
+__pycache__

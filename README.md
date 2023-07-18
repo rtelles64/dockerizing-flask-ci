@@ -440,6 +440,71 @@ With multiple ways to connect to a Redis instance, you can integrate Redis with 
 
 ### Implement and Run the Flask App Locally
 
+Open the `app.py` file in the `src/page_tracker` directory and add the following code:
+
+```python
+# src/page_tracker/app.py
+
+from flask import Flask
+from redis import Redis
+
+app = Flask(__name__)
+redis = Redis()
+
+@app.get("/")
+def index():
+    page_views = redis.incr("page_views")
+    return f"This page has been seen {page_views} times."
+```
+
+- After first importing the `flask` and `redis` packages as dependencies, the `Flask` application and `Redis` client are instantiated using default arguments. This means Redis will try to connect to a local server.
+- The `index()` function is decorated with the `@app.get()` controller decorator, which is a shortcut for `@app.route("/", methods=["GET"])`. This function will handle `GET` requests whenever a user visits the root URL (`/`) of the web app.
+
+The root endpoint increments the number of page views in Redis and displays a suitable message in the client's web browser. That's it! We have a complete starter web application that can handle HTTP traffic and persist state in a remote data store using fewer than ten lines of code.
+
+To verify the Flask app is working as expected, issue the following command in the terminal:
+
+```shell
+(tracker-app-env) $ flask --app src.page_tracker.app run
+ * Serving Flask app 'src.page_tracker.app'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:5000
+Press CTRL+C to quit
+```
+
+- The `flask --app` command (with the `src.page_tracker.app` reference) should be run within the `page-tracker` directory. Otherwise, you'll need to specify the full path to the `app.py` file.
+
+- This should run the Flask development server on localhost and on port `5000` with debug mode disabled.
+
+If you'd like to access the server from another computer on the same network, then you must bind it to all network interfaces by using the special address `0.0.0.0` instead of the default `localhost`, which represents the loopback interface:
+
+```shell
+(tracker-app-env) $ flask --app src.page_tracker.app run \
+                    --host 0.0.0.0 \
+                    --port 8080 \
+                    --debug
+
+ * Serving Flask app 'src.page_tracker.app'
+ * Debug mode: on
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.0.2:8080
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 759-189-650
+```
+
+You can also change the port number and enable debug mode with an appropriate command-line option or flag if you want to.
+
+Once you've started the server, you can follow the link displayed in the terminal and see the page with the number of views in your web browser. Every time you refresh this page, the counter should increase by one.
+
+Awesome! You've managed to create a bare-bones Flask app that tracks the number of page views using Redis. Next up, you'll learn how to test and secure your web application.
+
+## Test and Secure Your Web Application
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/

@@ -505,6 +505,176 @@ Awesome! You've managed to create a bare-bones Flask app that tracks the number 
 
 ## Test and Secure Your Web Application
 
+Before packaging and deploying any project to production, you should thoroughly test, examine, and secure the underlying source code. In this section, we'll exercise _unit, integration, and end-to-end_ tests. You'll also perform _static code analysis_ and _security scanning_ to identify potential issues and vulnerabilities when it's still cheap to fix them.
+
+### Cover the Source Code with Unit Tests
+
+_Unit testing_ involves testing a program's individual units or components to ensure that they work as expected. It's become a necessary part of the Software Development Lifecycle (SDLC) these days. Many engineers even take it a step further, rigorously following the [**test-driven-development**][test-driven-dev] methodology by writing their unit tests first to drive the code design.
+
+When it comes to writing unit tests, it's quite common for those in the Python community (_Pythonistas_) to choose [`pytest`][pytest-module] over the standard library's `unittest` module. Thanks to the relative simplicity of `pytest`, this testing framework is quick to start with.
+
+You can add `pytest` as an optional dependency to your project in the `pyproject.toml` file:
+
+```toml
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=67.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "page-tracker"
+version = "1.0.0"
+dependencies = [
+    "Flask",
+    "redis",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+```
+
+You can group [optional dependencies][optional-dependencies] that are somehow related under a common name. For example, in the `.toml` file above, there's a group called `dev` to collect tools and libraries that you'll use during development. By keeping `pytest` separate from the main dependencies, you'll be able to install it on demand only when needed. After all, there's no point in bundling your tests or the associated testing framework with the built _distribution package_.
+
+Don't forget to reinstall your Python package with the optional dependencies to get `pytest` into your project's virtual environment:
+
+```shell
+(tracker-app-env) $ pip install --editable ".[dev]"
+```
+
+- You can use square brackest to list the names of optional dependency groups defined in your `pyproject.toml` file. In this case, you ask to install the dependencies for development purposes, including a testing framework. Note that using quotes around the square brackets is recommended to prevent a potential filename expansion in the shell.
+
+You don't have to keep the test modules in the same folder or the same namespace package as the code you're testing. You can create a separate directory branch for your tests, as follows:
+
+```shell
+page-tracker/
+├── pyproject.toml
+├── requirements.txt
+├── src
+│   └── page_tracker
+│       ├── __init__.py
+│       └── app.py
+├── tracker-app-env/
+└── test
+    └── unit
+        └── test_app.py
+```
+
+> **REMEMBER**
+>
+> You can create a new directory at the same time as creating a nested folder using `mkdir -p`:
+>
+> ```shell
+> mkdir -p test/unit/
+> ```
+
+We place the `test_app.py` module inside the `test/unit/` folder to keep things organized. The `pytest` framework will discover your tests when you prefix them with the word `test`. Although this behavior can be changed, it's conventional to keep this format while mirroring each Python module with the corresponding test module. For example, to test the `app.py` module, you'll create a `test_app.py` module in the `test/unit/` folder.
+
+Starting with the _happy path_ (when everything works as expected), we'll send a simple request to the server. Each Flask app comes with a convenient test client that you can use to make simulated HTTP requests. Because the test client doesn't require a live server to be running, your unit tests will execute much faster and will become more isolated.
+
+You can get the test client and conveniently wrap it in a _test fixture_ (which initializes any preconditions a system may have which allows tests to be repeatable) to make it available to your test functions:
+
+```python
+# test/unit/test_app.py
+
+import pytest
+
+from page_tracker.app import app
+
+@pytest.fixture
+def http_client():
+    return app.test_client()
+```
+
+- We first import `pytest` ot take advantage of its `@fixture` decorator against the custom `http_client` function. Choose this function's name carefully because it'll also become the name of the fixture that you can pass around as an argument to the individual test functions.
+
+- We also import the Flask app from the `page_tracker` package to get the corresponding test client instance.
+
+When you intend to write a unit test, you must always isolate it by eliminating any dependencies that your unit of code may have. This means that you should mock or stub out any external services, databases, or libraries that your code relies on. In this case, the Redis server is such a dependency.
+
+Unfortunately, this app uses a hard-coded Redis client, which prevents mocking. This is a good argument for following test-driven development from the start, but it doesn't mean you have to go back and start over. Instead, we're going to refactor the code by implementing the dependency injection (where an object or function receives other objects or functions that it depends on) design pattern:
+
+```python
+# src/page_tracker/app.py
+
+# The '-' in this file represent removed lines. The '+' represent added lines.
+
++from functools import cache
+
+ from flask import Flask
+ from redis import Redis
+
+ app = Flask(__name__)
+-redis = Redis()
+
+ @app.get("/")
+ def index():
+-    page_views = redis.incr("page_views")
++    page_views = redis().incr("page_views")
+     return f"This page has been seen {page_views} times."
+
++@cache
++def redis():
++    return Redis()
+```
+
+- Essentially, we move the Redis client creation code from the global scpe to a new `redis()` function, which your controller function calls at runtime on each incoming request. This allows your test case to substitute the returned Redis instance with a mock counterpart at the right time. But to ensure that there's only one instance of the client in memory, effectively making it a _singleton_ (i.e. the only instance in the program), you also cache the result of your new function.
+
+Go back to your test module now and implement the following unit test:
+
+```python
+# test/unit/test_app.py
+
+import unittest.mock
+
+import pytest
+
+from page_tracker.app import app
+
+@pytest.fixture
+def http_client():
+    return app.test_client()
+
+@unittest.mock.patch("page_tracker.app.redis")
+def test_should_call_redis_incr(mock_redis, http_client):
+    # Given
+    mock_redis.return_value.incr.return_value = 5
+
+    # When
+    response = http_client.get("/")
+
+    # Then
+    assert response.status_code == 200
+    assert response.text == "This page has been seen 5 times."
+    mock_redis.return_value.incr.assert_called_once_with("page_views")
+```
+
+- We wrap the test function with Python's `@patch` decorator to inject a mocked Redis client into it as an argument.
+- We also tell `pytest` to inject the HTTP test client fixture as another argument.
+- The test function has a descriptive name that starts with the verb _should_ and follows the _Given-When-Then_ pattern. Both of these conventions, commonly used in _behavior-driven development_ (BDD), make your test read as **behavioral specifications**.
+
+In your test case, you first set up the mock Redis client to always return 5 whenever its `.incr()` method gets called. Then, you make a forged HTTP request to teh root endpoint (`/`) and check the server's response status and body. Because mocking helps you test the _behavior_ of your unit, you only verify that the server calls teh correct method with the expected argument, trusting that the Redis client works correctly.
+
+To execute your unit tests, you can either use the test runner integrated in your code editor, or you can type the following command:
+
+```shell
+(tracker-app-env) $ pytest -v test/unit/
+```
+
+- This command tells `pytest` to scan the `test/unit/` directory in order to look for test modules there. The `-v` flag increases the test reports _verbosity_ so that you can see more details about the individual test cases.
+
+> **NOTE**
+>
+> The command above assumes that you're running it from the `page-tracker` directory. Otherwise, you'll need to specify the full path to the `test/unit/` directory.
+
+Having your unit tests pass is only part of the story, however. Though they give you some level of confidence in your code, they're hardly enough to make any sort of guarantees.
+
+After unit tests have passed, you should also run _integration tests_ to ensure that your code works well with other components. We'll add rudimentatary integration tests to our project next.
+
+### Check Component Interactions through Integration Tests
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -538,3 +708,7 @@ Awesome! You've managed to create a bare-bones Flask app that tracks the number 
 [docker-port-mapping]: https://docs.docker.com/desktop/networking/#port-mapping
 
 [docker-inspect-formatting]: https://docs.docker.com/config/formatting/
+
+[test-driven-dev]: https://realpython.com/python-hash-table/#take-a-crash-course-in-test-driven-development
+[pytest-module]: https://realpython.com/pytest-python-testing/
+[optional-dependencies]: https://setuptools.pypa.io/en/latest/userguide/dependency_management.html#optional-dependencies

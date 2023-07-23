@@ -673,7 +673,208 @@ Having your unit tests pass is only part of the story, however. Though they give
 
 After unit tests have passed, you should also run _integration tests_ to ensure that your code works well with other components. We'll add rudimentatary integration tests to our project next.
 
-### Check Component Interactions through Integration Tests
+### Check Component Interactions Through Integration Tests
+
+_Integration testing_ should be the next phase after running your unit tests. The goal of integration testing is to check how your components interact with each other as parts of a larger system.
+
+We can reuse `pytest` to implement and run the integration tests. However, you'll install an additional `pytest-timeout` plugin to allow you to force the failure of test cases that taek too long to run:
+
+```toml
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=67.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "page-tracker"
+version = "1.0.0"
+dependencies = [
+    "Flask",
+    "redis",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-timeout",
+]
+```
+
+Ideally, you don't need to worry about unit tests timing out because they should be optimized for speed. On the other hand, integration tests will take longer to run and could hang infinitely on a stalled network connection, preventing your test suite from finishing. This is why you should set a timeout for your integration tests.
+
+Remember to reinstall your package with optional dependencies once again to make the `pytest-timeout` plugin available:
+
+```shell
+(tracker-app-env) $ pip install --editable ".[dev]"
+```
+
+Before continuing, add another subfolder for your integration tests and define a `conftest.py` file in your `test/` folder:
+
+```shell
+page-tracker/
+│
+├── src/
+│   └── page_tracker/
+│       ├── __init__.py
+│       └── app.py
+│
+├── test/
+│   ├── integration/
+│   │   └── test_app_redis.py
+│   │
+│   ├── unit/
+│   │   └── test_app.py
+│   │
+│   └── conftest.py
+│
+├── venv/
+│
+├── requirements.txt
+└── pyproject.toml
+```
+
+- You'll place common fixtures in `conftest.py` which different types of tests will share.
+
+While your web app has just one component, you can think of Redis as another component that Flask needs to work with. Therefore, an integration test might look similar to your unit test, except that the Redis client won't be mocked anymore:
+
+```python
+# test/integration/test_app_redis.py
+
+import pytest
+
+@pytest.mark.timeout(1.5)
+def test_should_update_redis(redis_client, http_client):
+    # Given
+    redis_client.set("page_views", 4)
+
+    # When
+    response = http_client.get("/")
+
+    # Then
+    assert response.status_code == 200
+    assert response.text == "This page has been seen 5 times."
+    assert redis_client.get("page_views") == b"5"
+```
+
+- Conceptually, your new test case consists of the same steps as before, but it interacts with the real Redis server. That's why you give the test at most 1.5 seconds to finish using the `@pytest.mark.timeout` decorator. The test function takes two fixtures as parameters:
+
+  1. A Redis client connected to a local data store
+  2. Flask's test client hooked to your web application
+
+To make the second one available to your integration test as well, you must move the `http_client()` fixture from the `test_app` module to the `conftest.py` file:
+
+```python
+# test/conftest.py
+
+import pytest
+import redis
+
+from page_tracker.app import app
+
+@pytest.fixture
+def http_client():
+    return app.test_client()
+
+@pytest.fixture(scope="module")
+def redis_client():
+    return redis.Redis()
+```
+
+- Because this file is located one level up in the folder hierarchy, `pytest` will pick up all the fixtures defined in it and make them visible throughout your nested folders.
+
+- Apart from the `http_client()` fixture, which we moved from another Python module, we define a new fixture that returns a default Redis client. We set `scope="module"` for this fixture to reuse the same Redis client instance for all functions within a test module.
+
+To perform your integration test, you'll have to double-check that a Redis server is running locally on the default port, `6379`. You can then start `pytest` as before, but point it to the folder with your integration tests:
+
+```shell
+(tracker-app-env) $ pytest -v test/integration/
+```
+
+Because the integration test connects to an actual Redis server, it'll overwrite the value that might have previously stored under the `page_views` key. However, if the Redis server isn't running while your integration tests are executing, or if Redis is running elsewhere, then your test will fail. This failure may be for the wrong reasons, making the outcome a _false negative_ error, as your code might actually be working as expected, it's just that the connection is bad.
+
+To observe this problem, stop the Redis server and rerun the integration test:
+
+```shell
+(page-tracker) $ docker stop redis-server
+redis-server
+(page-tracker) $ pytest -v test/integration/
+
+========================= short test summary info ==========================
+FAILED test/integration/test_app_redis.py::test_should_update_redis -
+⮑redis.exceptions.ConnectionError: Error 111 connecting to localhost:6379.
+⮑Connection refused
+============================ 1 failed in 0.19s =============================
+```
+
+- This uncovers an issue in your code, which doesn't gracefully handle Redis connection errors at the moment. In the spirit of test-driven development, you may first codify a test case that reproduces that problem and then fix it.
+
+Add the following unit test in your `test_app` module with a mocked Redis client:
+
+```python
+# test/unit/test_app.py
+
+import unittest.mock
+
+from redis import ConnectionError
+
+# ...
+
+@unittest.mock.patch("page_tracker.app.redis")
+def test_should_handle_redis_connection_error(mock_redis, http_client):
+    # Given
+    mock_redis.return_value.incr.side_effect = ConnectionError
+
+    # When
+    response = http_client.get("/")
+
+    # Then
+    assert response.status_code == 500
+    assert response.text == "Sorry, something went wrong \N{pensive face}"
+```
+
+- You set the mocked `.incr()` method's side effect so that calling that method will raise the `redis.ConnectionError` exception, which you observed when the integration test failed.
+
+Your new unit test, which is an example of a negative test, expects Flask to respond with an HTTP status code of `500` and a descriptive message.
+
+Here's how to satisfy that unit test:
+
+```python
+# src/page_tracker/app.py
+
+from functools import cache
+
+from flask import Flask
+from redis import Redis, RedisError
+
+app = Flask(__name__)
+
+@app.get("/")
+def index():
+    try:
+        page_views = redis().incr("page_views")
+    except RedisError:
+        app.logger.exception("Redis error")
+        return "Sorry, something went wrong \N{pensive face}", 500
+    else:
+        return f"This page has been seen {page_views} times."
+
+@cache
+def redis():
+    return Redis()
+```
+
+- You intercept the top-level exception class, `redis.RedisError`, which is the ancestor of all exception types raised by the Redis client. If anything goes wrong, then you return the excepted HTTP status code and a message. For convenience, you also log the exception using the logger built into Flask.
+
+> **NOTE**
+>
+> While a parent is the immediate base class that a child class is directly extending, an ancestor can be anywhere further up the inheritance hierarchy.
+
+We've ammended our tests, implemented an integration test, and fixed a defect in our code after finding out about it, thanks to testing. Nonetheless, when you deploy your application to a remote environment, how will you know that all the pieces fit together and everything works as expected?
+
+In the next section, you'll simulate a real-world scenario by performing an end-to-end test against your actual Flask server rather than the test client.
+
+### Test a Real-World Scenario End to End (E2E)
 
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 

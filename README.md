@@ -728,7 +728,7 @@ page-tracker/
 │   │
 │   └── conftest.py
 │
-├── venv/
+├── tracker-app-env/
 │
 ├── requirements.txt
 └── pyproject.toml
@@ -876,6 +876,194 @@ In the next section, you'll simulate a real-world scenario by performing an end-
 
 ### Test a Real-World Scenario End to End (E2E)
 
+End-to-end testing, also known as _broad stack testing_, encompasses many kinds of tests that can help you verify the system as a whole. This puts the complete software stack to the test by simulating an actual user's flow thorugh the application. Therefore, end-to-end testing requires a _deployment environment_ that mimics the production environment as closely as possible. A dedicated team of test engineers is usually needed, too.
+
+> **NOTE**
+>
+> Because end-to-end tests have a high maintenance cost and tend to take a lot of time to set up and run, they sit atop Google's testing pyramid. In other words, you should aim for more integration tests, and even more unit tests in your projects.
+
+As you'll eventually want to build a full-fledged _continuous integration pipeline_ for your Docker application, having some end-to-end tests in place will become essential. Start by adding another subfolder for your E2E tests:
+
+```shell
+page-tracker/
+│
+├── src/
+│   └── page_tracker/
+│       ├── __init__.py
+│       └── app.py
+│
+├── test/
+│   ├── e2e/
+│   │   └── test_app_redis_http.py
+│   │
+│   ├── integration/
+│   │   └── test_app_redis.py
+│   │
+│   ├── unit/
+│   │   └── test_app.py
+│   │
+│   └── conftest.py
+│
+├── tracker-app-env/
+│
+├── requirements.txt
+└── pyproject.toml
+```
+
+The test scenario you're about to implement will look similar to your integration test. The main difference though is that you'll be sending actual HTTP requests through the network to a live web server instead of relying on Flask's test client. To do so, you'll use the `requests` library, which you must first specify in your `pyproject.toml` file as another optional dependency:
+
+```toml
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=67.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "page-tracker"
+version = "1.0.0"
+dependencies = [
+    "Flask",
+    "redis",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-timeout",
+    "requests",
+]
+```
+
+- Since you won't be using `requests` to run your server in production, there's no need to require it as a regular dependency. Again, reinstall your Python package with optional dependencies using the editable mode:
+
+```shell
+(tracker-app-env) $ pip install --editable ".[dev]"
+```
+
+You can now use the installed `requests` library in your end-to-end test:
+
+```python
+# test/e2e/test_app_redis_http.py
+
+import pytest
+import requests
+
+@pytest.mark.timeout(1.5)
+def test_should_update_redis(redis_client, flask_url):
+    # Given
+    redis_client.set("page_views", 4)
+
+    # When
+    response = requests.get(flask_url)
+
+    # Then
+    assert response.status_code == 200
+    assert response.text == "This page has been seen 5 times."
+    assert redis_client.get("page_views") == b"5"
+```
+
+- This code is nearly identical to the integration test except for the following line:
+
+  ```python
+  response = requests.get(flask_url)
+  ```
+
+- We previously sent that request to the test client's root address, denoted with a slash character (`/`). Now, we don't know the exact domain or IP address of the Flask server, which may be running on a remote host. Therefore, the function now receives a Flask URL as an argument, which `pytest` injects as a fixture.
+
+You may provide the specific web server's addresses through the command line. Similarly, your Redis server may be running on a different host, so you'll want to provide its address as a command-line argument as well. Currently though, your Flask app currently expects Redis to always run on the `localhost`. Let's update our code to make this more configurable:
+
+```python
+# src/page_tracker/app.py
+
+import os
+from functools import cache
+
+from flask import Flask
+from redis import Redis, RedisError
+
+app = Flask(__name__)
+
+@app.get("/")
+def index():
+    try:
+        page_views = redis().incr("page_views")
+    except RedisError:
+        app.logger.exception("Redis error")
+        return "Sorry, something went wrong \N{pensive face}", 500
+    else:
+        return f"This page has been seen {page_views} times."
+
+@cache
+def redis():
+    return Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+```
+
+- It's common to use environment variables for setting sensitive data, such as a database URL, because it provides an extra level of security and flexibility.
+- In this more configurable version, the program expects a custom `REDIS_URL` variable to exist. If that variable isn't specified in the given environment, then you fall back to the default host and port.
+
+To extend `pytest` with custom command-line arguments, you must edit `conftest.py` and hook into the framework's argument parser in the following way:
+
+```python
+# test/conftest.py
+
+import pytest
+import redis
+
+from page_tracker.app import app
+
+def pytest_addoption(parser):
+    parser.addoption("--flask-url")
+    parser.addoption("--redis-url")
+
+@pytest.fixture(scope="session")
+def flask_url(request):
+    return request.config.getoption("--flask-url")
+
+@pytest.fixture(scope="session")
+def redis_url(request):
+    return request.config.getoption("--redis-url")
+
+@pytest.fixture
+def http_client():
+    return app.test_client()
+
+@pytest.fixture(scope="module")
+def redis_client(redis_url):
+    if redis_url:
+        return redis.Redis.from_url(redis_url)
+    return redis.Redis()
+```
+
+- We define two optional arguments, `--flask-url` and `--redis-url`, using syntax similar to Python's [`argparse`][python-argparse] module.
+- We then wrap these arguments in [session-scoped][pytest-fixture-scopes] fixtures, which you'll be able to inject into your test functions and other fixtures. Specifically, the existing `redis_client()` fixture now takes advantage of the optional Redis URL.
+
+> **NOTE**
+>
+> Because your end-to-end integration tests rely on the same `redis_client()` fixture, you'll be able to connect to a remote Redis server by specifying the `--redis-url` option in both types of tests.
+
+This is how you can run your end-to-end test with `pytest` by specifying the URL of the Flask web server and the corresponding Redis server:
+
+```shell
+(tracker-app-env) $ pytest -v test/e2e/ \
+  --flask-url http://127.0.0.1:5000 \
+  --redis-url redis://127.0.0.1:6379
+```
+
+- In this case, you can access both Flask and Redis through localhost (`127.0.0.1`) but your application could be deploeyd to a geographically distributed environment consisting of multiple remote machines.
+- When you execute this command locally, make sure that Redis is running and you start your Flask server separately first:
+
+```shell
+(tracker-app-env) $ docker start redis-server
+(tracker-app-env) $ flask --app page_tracker.app run
+```
+
+To improve code quality, you can keep adding more types of tests to your application if you have the capacity. Still, that usually takes a team of full-time quality assurance engineers. On the other hand, performing a code review or another type of _static code analysis_ is fairly low-hanging fruit that can uncover surprisingly many problems.
+
+We'll look at this process now.
+
+### Perform Static Code Analysis and Security Scanning
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -913,3 +1101,6 @@ In the next section, you'll simulate a real-world scenario by performing an end-
 [test-driven-dev]: https://realpython.com/python-hash-table/#take-a-crash-course-in-test-driven-development
 [pytest-module]: https://realpython.com/pytest-python-testing/
 [optional-dependencies]: https://setuptools.pypa.io/en/latest/userguide/dependency_management.html#optional-dependencies
+
+[python-argparse]: https://realpython.com/command-line-interfaces-python-argparse/
+[pytest-fixture-scopes]: https://docs.pytest.org/en/6.2.x/fixture.html#fixture-scopes

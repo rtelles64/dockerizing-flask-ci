@@ -1278,6 +1278,33 @@ Now, your web app is covered with unit, integration, and end-to-end tests. This 
 
 ## Dockerize Your Flask Web Application
 
+In this section, we'll run the page tracker web application as a Docker container that can speak to Redis running in another container. This setup is useful for development and testing as well as for deploying your application to a remote environment. Even if Python or Redis isn't installed on your local machine, you'll still be able to run your project through Docker. This is the power of _containerization_!
+
+### Understand the Docker Terminology
+
+Dockerizing an application involves creating a _Dockerfile_, in which we declare the desired state of our environment. It provides a template for the runtime environment, configuration, and all the dependencies and libraries required to run your application.
+
+We'll need to build a _Docker image_ based on the configuration of the Dockerfile. You can think of the Docker image as a snapshot of the operating systems at a given time. When you share your Docker image, others can reproduce precisely the same environment and run the same application as you do. This avoids the notorious "but it works on my machine!" issue.
+
+Docker images are the blueprint for _Docker containers_. Each Docker container is an instance of your Docker image. A container has an independent state and resources, including its own file system, environment variables, and network interfaces. A single Docker container usually runs a single process, making it ideal for hosting a particular microservice.
+
+By adding more containers, you can temporarily scale up one or more microservices to handle a peak in traffic, which could be typical during the holiday season, for example. However, your microservices must be well-architected and remain stateless for this to be effective.
+
+> **NOTE**
+>
+> Docker containers resemble virtual machines but are much more lightweight and faster to spin up. As a result, you can run many more containers than virtual machines on your host machine simultaneously.
+>
+> The reason for this is that containers have less overhead because they share your operating system's kernel, while virtual machines run on a hypervisor that emulates the complete hardware stack. On the other hand, containers aren't as secure, nor do they provide the same level of isolation as virtual machines.
+
+Typical applications consist of multiple services running within isolated Docker containers that can communicate with each other. Your page tracker application has these two:
+
+1. Web service
+2. Redis service
+
+We already have Redis running through Docker. Now it's time to sandbox the Flask application within a Docker container to streamline the development and deployment process of both services.
+
+### The Anatomy of a Dockerfile
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/

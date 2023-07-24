@@ -1064,6 +1064,220 @@ We'll look at this process now.
 
 ### Perform Static Code Analysis and Security Scanning
 
+Now that the application works as expected, it's time to perform static code analysis without executing the underlying code. This helps to identify potential software defects and security risks in the code. While some steps of static analysis can be automated, others are usually done manually, for example through peer review.
+
+We'll use the following automated tools added to the `pyproject.toml` file:
+
+```toml
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=67.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "page-tracker"
+version = "1.0.0"
+dependencies = [
+    "Flask",
+    "redis",
+]
+
+[project.optional-dependencies]
+dev = [
+    "bandit",
+    "black",
+    "flake8",
+    "isort",
+    "pylint",
+    "pytest",
+    "pytest-timeout",
+    "requests",
+]
+```
+
+Don't forget to reinstall the dependencies:
+
+```shell
+(tracker-app-env) $ pip install --editable ".[dev]"
+```
+And pin them to the `requirements.txt` file:
+
+```shell
+(tracker-app-env) $ pip-chill --no-version > requirements.txt
+```
+
+> **NOTE**
+>
+> The original tutorial uses `pip freeze` (and most other projects will) to pin dependencies. `pip-chill --no-version` is used here since it streamlines dependency install in the future.
+
+The added tools are utility tools which help with formatting and adhering to [PEP8][pep8] compliance:
+
+```shell
+(tracker-app-env) $ black src/ --check
+would reformat /Users/roytelles/Desktop/Real Python/Docker/Dockerizing Flask/page-tracker/src/page_tracker/app.py
+
+Oh no! 💥 💔 💥
+1 file would be reformatted, 1 file would be left unchanged.
+
+(tracker-app-env) $ isort src/ --check
+ERROR: /home/.../app.py Imports are incorrectly sorted and/or formatted.
+
+(tracker-app-env) $ flake8 src/
+src/page_tracker/app.py:23:1: E302 expected 2 blank lines, found 1
+```
+
+- `black` flags any formatting inconsistencies in your code
+
+- `isort` ensures that your `import` statements stay organized according to the [official recommendation][pep8-imports]
+
+- `flake8` checks for any other PEP 8 style violations
+
+If you don't see any output after running these tools, then there's nothing to fix! On the other hand, if warnings or errors appear, then you can correct any reported problems by hand or let those tools do it automatically when you omit the `--check` flag:
+
+```shell
+(tracker-app-env) $ black src/
+reformatted /Users/roytelles/Desktop/Real Python/Docker/Dockerizing Flask/page-tracker/src/page_tracker/app.py
+
+All done! ✨ 🍰 ✨
+1 file reformatted, 1 file left unchanged.
+
+(tracker-app-env) $ isort src/
+Fixing /home/realpython/page-tracker/src/page_tracker/app.py
+
+(tracker-app-env) $ flake8 src/
+```
+
+- Without the `--check` flag, both `black` and `isort` reformat the affected files in place without asking. Running these two commands also addresses PEP 8 compliance, causing `flake8` to no longer return any style violations.
+
+> **NOTE**
+>
+> It's useful to keep the code tidy by following common code style conventions across your team. This way, when one person updates a source file, team members won't have to sort through changes to irrelevant parts of code, such as whitespace.
+
+Once everything is clean, you can [_lint_][python-linters] your code to find potential _code smells_ &mdash; characteristics in the source code that indicate deeper problems &mdash; or ways to improve it:
+
+```shell
+(tracker-app-env) $ pylint src/
+************* Module page_tracker.app
+src/page_tracker/app.py:1:0: C0114: Missing module docstring (missing-module-docstring)
+src/page_tracker/app.py:11:0: C0116: Missing function or method docstring (missing-function-docstring)
+src/page_tracker/app.py:12:4: R1705: Unnecessary "else" after "return", remove the "else" and de-indent the code inside it (no-else-return)
+src/page_tracker/app.py:22:0: C0116: Missing function or method docstring (missing-function-docstring)
+
+-----------------------------------
+Your code has been rated at 7.14/10
+```
+
+- When you run `pylint` against your web app's source code, it may start complaining about more or less useful things. It generally emits messages belonging to a few categories:
+
+- E: Errors
+- W: Warnings
+- C: Convention violations
+- R: Refactoring suggestions
+
+Each remark has a unique identifier, such as `C0116`, which you can suppress if you don't find it helpful. You may include the suppressed identifiers in a global configuration file for a permanent effect or use a command-line switch to ignore certain errors on a given run. YOu can also add a specially formatted Python comment on a given line to account for special cases:
+
+```python
+# src/page_tracker/app.py
+
+import os
+from functools import cache
+
+from flask import Flask
+from redis import Redis, RedisError
+
+app = Flask(__name__)
+
+@app.get("/")
+def index():
+    try:
+        page_views = redis().incr("page_views")
+    except RedisError:
+        app.logger.exception("Redis error")  # pylint: disable=E1101
+        return "Sorry, something went wrong \N{pensive face}", 500
+    else:
+        return f"This page has been seen {page_views} times."
+
+@cache
+def redis():
+    return Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+```
+
+- In this case, we tell `pylint` to ignore a particular instance of the error `E1101` without suppressing it completely. It's a false positive because `.logger` is a dynamic attribute generated at runtime by Flask, which isn't available during a static analysis pass.
+
+> **NOTE**
+>
+> If you intend to use `pylint` as part of your automated continuous integration pipeline, then you may want to specify when it should exit with an error code, which would typically stop the subsequent steps of the pipeline.
+>
+> For example, you can configure it to always return a neutral exit code:
+>
+> ```shell
+> (tracker-app-env) $ pylint src/ --exit-zero
+> ```
+>
+> This will never stop the pipeline from running, even when `pylint` finds some problems in the code. Alternatively, with `--fail-under`, you can specify an arbitrary score threshold at which `pylint` will exit with an error code.
+
+You can see that `pylint` will give a score to your code and keeps track of it:
+
+```shell
+Your code has been rated at 7.14/10
+```
+
+When you fix a problem one way or another and run the tool again, then it'll report a new score and tell you how much it has improved or worsened. Use your best judgment to decide whether issues that `pylint` reports are worth fixing.
+
+Finally, it's too common to inadvertently leak sensitive data through your source code or expose other security vulnerabilities. To reduce the risk of such incidents, you should perform security or vulnerability scanning of your source code before deploying it anywhere.
+
+You can use `bandit` to scan your code for potential security issues:
+
+```shell
+(tracker-app-env) $ bandit -r src/
+[main]  INFO    profile include tests: None
+[main]  INFO    profile exclude tests: None
+[main]  INFO    cli include tests: None
+[main]  INFO    cli exclude tests: None
+[main]  INFO    running on Python 3.11.4
+Run started:2023-07-24 04:48:28.428300
+
+Test results:
+        No issues identified.
+
+Code scanned:
+        Total lines of code: 17
+        Total lines skipped (#nosec): 0
+
+Run metrics:
+        Total issues (by severity):
+                Undefined: 0
+                Low: 0
+                Medium: 0
+                High: 0
+        Total issues (by confidence):
+                Undefined: 0
+                Low: 0
+                Medium: 0
+                High: 0
+Files skipped (0):
+```
+
+When you specify a path to a folder rather than to a file, you must include the `-r` flag to scan recursively. At this point, `bandit` shouldn't find any issues in your code. But, if you run it again after adding the following two lines at the bottom of your Flask application, then the tool will report issues with different severity levels:
+
+```python
+# src/page_tracker/app.py
+
+# ...
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+```
+
+- This [name-main idiom][name-main-idiom] is a common pattern found in many Flask applications because it makes development more convenient, letting you run the Python module directly. On the other hand, it exposes Flask's debugger, allowing the execution of arbitrary code, and binding to all network interfaces through the `0.0.0.0` address opens up your service to public traffic.
+
+Therefore, to make sure your Flask app is secure, you should always run `bandit` or a similar tool before deploying the code to production.
+
+Now, your web app is covered with unit, integration, and end-to-end tests. This means a number of automated tools have statically analyzed and modified its source code. Next, we'll continue on the path to continuous integration by wrapping the application in a Docker container so that you can deploy the whole project to a remote environment and faithfully replicate it on a local computer.
+
+## Dockerize Your Flask Web Application
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -1104,3 +1318,8 @@ We'll look at this process now.
 
 [python-argparse]: https://realpython.com/command-line-interfaces-python-argparse/
 [pytest-fixture-scopes]: https://docs.pytest.org/en/6.2.x/fixture.html#fixture-scopes
+
+[pep8]: https://realpython.com/python-pep8/
+[pep8-imports]: https://peps.python.org/pep-0008/#imports
+[python-linters]: https://realpython.com/python-code-quality/#linters
+[name-main-idiom]: https://realpython.com/if-name-main-python/

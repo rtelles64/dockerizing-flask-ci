@@ -1,3 +1,4 @@
+import os
 from functools import cache
 
 from flask import Flask
@@ -19,4 +20,6 @@ def index():
 
 @cache
 def redis():
-    return Redis()
+    # If the REDIS_URL isn't configured, the default database on localhost is
+    # used instead.
+    return Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))

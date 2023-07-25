@@ -1305,6 +1305,42 @@ We already have Redis running through Docker. Now it's time to sandbox the Flask
 
 ### The Anatomy of a Dockerfile
 
+To get started, create a file named `Dockerfile` in the project's root folder (on the same level as `src/` and `pyproject.toml`):
+
+```shell
+page-tracker/
+│
+├── src/
+│   └── page_tracker/
+│       ├── __init__.py
+│       └── app.py
+│
+├── test/
+│
+├── tracker-app-env/
+│
+├── requirements.txt
+├── Dockerfile
+└── pyproject.toml
+```
+
+> **NOTE**
+>
+> `Dockerfile` can be named whatever you like, but sticking to the default naming convention will spare you from having to specify the filename each time you want to build an image.
+
+A Dockerfile adheres to a [specific format][dockerfile-reference] which defines a fixed set of instructions for you to use.
+
+> **NOTE**
+>
+> Though most instructions in a Dockerfile are placed on separate lines, it's not uncommon to see really long lines broken up several times with a backslash (`\`). In fact, placing more than one operation on a single line is often desired to take advantage of the _caching mechanism_.
+
+When you build an image from a Dockerfile, you're relying on a sequence of layers. Each instruction creates a read-only layer on top of the previous layer, encapsulating some modification to the image's underlying file system. Layers have globally unique identifiers, which allow Docker to store the layers in a cache. This has two main advantages:
+
+1. **Speed**: Docker can skip layers that haven't changed since the last build and load them from the cache instead, which leads to significantly faster image builds.
+2. **Size**: Multiple images can share common layers, which reduces their individual size. Other than that, having fewer layers contributes to the smaller image size.
+
+Now we'll start adding instructions to the Dockerfile while learning about the best practices for creating efficient Docker images.
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -1350,3 +1386,5 @@ We already have Redis running through Docker. Now it's time to sandbox the Flask
 [pep8-imports]: https://peps.python.org/pep-0008/#imports
 [python-linters]: https://realpython.com/python-code-quality/#linters
 [name-main-idiom]: https://realpython.com/if-name-main-python/
+
+[dockerfile-reference]: https://docs.docker.com/engine/reference/builder/

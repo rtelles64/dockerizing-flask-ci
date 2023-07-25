@@ -1388,6 +1388,58 @@ Now that we have our base image and installed the most recent security updates, 
 
 ### Isolate Your Docker Image
 
+Another best practice when working with Dockerfiles is to create and switch to a regular user without admin privileges as soon as you don't need them anymore. By default, Docker runs your commands as the _superuser_, which a malicious attacker could exploit to gain unrestricted access to your host system. Yes, Docker gives root-level access to the container and your host machine!
+
+Here's how to avoid this potential security risk:
+
+```Dockerfile
+# Dockerfile
+
+FROM python:3.11.2-slim-bullseye
+
+RUN apt-get update && \
+    apt-get upgrade --yes
+
+RUN useradd --create-home realpython
+USER realpython
+WORKDIR /home/realpython
+```
+
+- You create a new user named `realpython` and tell Docker to use that user in the Dockerfile from now on. You also set the current working directory to this user's home directory so that you don't have to specify the full file path explicitly in later commands.
+
+Even though your Docker container will run a single Flask application, consider setting up a dedicated virtual environment inside the container itself. While you don't need to worry about isolating multiple Python projects from each other, and Docker provides a reasonable insulation layer from your host machine, you still risk interfering with the container's own system tools.
+
+Unfortunately, many Linux distributions rely on the global Python installation to run smoothly. If you start installing packages directly into the global Python environment, then you open the door for potential version conflicts which could eventually lead to breaking your system.
+
+The most reliable way of creating and activating a virtual environment within your Docker image is to directly modify its `PATH` environment variable:
+
+```Dockerfile
+# Dockerfile
+
+FROM python:3.11.2-slim-bullseye
+
+RUN apt-get update && \
+    apt-get upgrade --yes
+
+RUN useradd --create-home realpython
+USER realpython
+WORKDIR /home/realpython
+
+ENV VIRTUALENV=/home/realpython/venv
+RUN python3 -m venv $VIRTUALENV
+ENV PATH="$VIRTUALENV/bin:$PATH"
+```
+
+- First, define a helper variable, `VIRTUALENV`, with the path to your project's environment
+- Then use Python's `venv` module to create the environment.
+- Finally, rather than activating your new environment with a shell script, you update the `PATH` variable by overriding the path to the `python` executable.
+
+Updating the `PATH` variable is necessary because activating your environment in the usual way would only be temporary and wouldn't affect Docker containers derived from your image. Moreover, if you activated the virtual environment using Dockerfile's `RUN` instruction, it would only last until the next instruction in your Dockerfile because each one starts a new shell session.
+
+Once you have the virtual environment for your project, you can install the necessary dependencies.
+
+### Cache Your Project Dependencies
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/

@@ -1341,6 +1341,53 @@ When you build an image from a Dockerfile, you're relying on a sequence of layer
 
 Now we'll start adding instructions to the Dockerfile while learning about the best practices for creating efficient Docker images.
 
+### Choose the Base Docker Image
+
+The first instruction in every `Dockerfile`, `FROM`, must always define the _base image_ to build your new image from. This means that you don't have to start from scratch but can pick a suitable image that's already built.
+
+For example, you can use an image that ships with the Python interpreter:
+
+```Dockerfile
+# Dockerfile
+
+FROM python:3.11.2-slim-bullseye
+```
+
+- Here, we use the official Python image which is hosted on Docker Hub. Official images are built and maintained by the official maintainers of the respective language or technology. They don't belong to any particular user or team on Docker Hub but are available in the global namespace, implicitly called `library/`, as opposed to more specialized variants, like `circleci/python`.
+
+- You also specify an optional label or _tag name_ after the colon (`:`) to narrow down the specific version of the base image. You can brows all the [available tags][python-dockerhub] of the given Docker image by clicking on the _Tags_ tab on the corresponding Docker Hub page.
+
+> **NOTE**
+>
+> Tags aren't mandatory, but including them in the `FROM` instruction is considered best practice. It's best to be specific as possible to avoid unwanted surprises. If you omit the tag, then Docker will pull the `latest` image, which might contain an unsuitable operating system or unexpected changes in the runtime, affecting your application.
+
+The tag `3.11.2-slim-bullseye` means that your base image will be a slimmed-down variant of _Debian Bullseye_ with only the bare essentials, letting you install any additional packages later as needed. This reduces the image's size and speeds up its download time. The difference in size between the regular and slim variants of this image is 800 MB!
+
+The tag also indicates that the base image will ship with [Python 3.11.2][python-3112-breakdown] already installed, so you can start using it right away.
+
+The next instruction we'll want immediately after pulling a base image is to patch it with the most recent security updates and bug fixes, which may have been released since the image was published on Docker Hub:
+
+```Dockerfile
+# Dockerfile
+
+FROM python:3.11.2-slim-bullseye
+
+RUN apt-get update && \
+    apt-get upgrade --yes
+```
+
+- `apt-get` is specific to Debian and is used to fetch the latest package list and upgrade any packages that have updates available.
+
+- Both commands are executed as part of a single `RUN` command (using `&&`) to minimize the number of layers in the file system, so you avoid taking too much disk space.
+
+> **NOTE**
+>
+> The order of instructions in your Dockerfile is important because it can affect how long it'll take to build an image. In particular, you should place instructions whose layers often change toward the bottom of your Dockerfile because they're most likely to invalidate all the subsequent layers in the cache.
+
+Now that we have our base image and installed the most recent security updates, we're on our way to set up our Flask app. We've got a few more steps before we can incorporate it.
+
+### Isolate Your Docker Image
+
 [dockerizing-flask-ci]: https://realpython.com/docker-continuous-integration/
 
 [web-development]: https://realpython.com/learning-paths/become-python-web-developer/
@@ -1388,3 +1435,5 @@ Now we'll start adding instructions to the Dockerfile while learning about the b
 [name-main-idiom]: https://realpython.com/if-name-main-python/
 
 [dockerfile-reference]: https://docs.docker.com/engine/reference/builder/
+[python-dockerhub]: https://hub.docker.com/_/python/tags
+[python-3112-breakdown]: https://realpython.com/python311-new-features/
